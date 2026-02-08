@@ -1,0 +1,192 @@
+// ==UserScript==
+// @name         Worker Top Up Ukhro (Slave Mode)
+// @namespace    http://tampermonkey.net/
+// @version      2.0
+// @description  Menerima perintah dari Web App Controller via URL Hash
+// @author       Assistant
+// @match        https://psp-admin.teknologikartu.com/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // --- UTILS ---
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const waitForElm = (selector) => {
+        return new Promise(resolve => {
+            if (document.querySelector(selector)) return resolve(document.querySelector(selector));
+            const observer = new MutationObserver(() => {
+                if (document.querySelector(selector)) {
+                    observer.disconnect();
+                    resolve(document.querySelector(selector));
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        });
+    };
+
+    // --- MAIN LOGIC ---
+    async function init() {
+        // 1. Cek apakah ada Job baru dari URL Hash
+        if (window.location.hash.includes('bot_job=')) {
+            const hash = window.location.hash.split('bot_job=')[1];
+            try {
+                const jobData = JSON.parse(decodeURIComponent(hash));
+                // Simpan job ke Session Storage agar bertahan saat page reload/navigasi
+                sessionStorage.setItem('CURRENT_BOT_JOB', JSON.stringify(jobData));
+                
+                // Bersihkan URL agar tidak trigger ulang loop infinit jika user refresh manual
+                history.replaceState(null, null, ' ');
+            } catch (e) {
+                console.error("Gagal parse job", e);
+            }
+        }
+
+        // 2. Ambil Job Aktif
+        const rawJob = sessionStorage.getItem('CURRENT_BOT_JOB');
+        if (!rawJob) return; // Tidak ada tugas, diam saja (mode manual user biasa)
+
+        const job = JSON.parse(rawJob);
+        const { student, config } = job;
+        
+        console.log("🤖 Worker Aktif. Memproses:", student.nama);
+
+        // --- DETEKSI HALAMAN ---
+        const url = window.location.href;
+
+        // A. HALAMAN SEARCH
+        if (url.includes('/payment/user-balance')) {
+            try {
+                await sleep(1000); // Tunggu render
+
+                // 1. Isi Input Search
+                const inputWrapper = await waitForElm('div[class*="-control"]');
+                const inputEl = inputWrapper.querySelector('input');
+                
+                inputEl.focus();
+                // React Hack Input
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                nativeSetter.call(inputEl, student.nama);
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+
+                await sleep(2500); // Tunggu dropdown request
+
+                // 2. Pilih Dropdown
+                const menuEl = document.querySelector('div[class*="-menu"]');
+                if (!menuEl) throw "Dropdown user tidak muncul";
+
+                const options = menuEl.querySelectorAll('div[class*="-option"]');
+                let found = false;
+                
+                // Cari nama ayah
+                for (let opt of options) {
+                    if (opt.innerText.toLowerCase().includes(student.nama_ayah.toLowerCase())) {
+                        opt.click();
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                     // Fallback: Jika opsi cuma 1 dan namanya mirip, ambil saja (Optional logic)
+                     if(options.length === 1) {
+                         options[0].click();
+                     } else {
+                         throw `Ayah '${student.nama_ayah}' tidak ketemu.`;
+                     }
+                }
+
+                await sleep(1500);
+
+                // 3. Klik Tampilkan Saldo 0
+                const labels = Array.from(document.querySelectorAll('label'));
+                const saldoLabel = labels.find(l => l.innerText.includes('Tampilkan Saldo 0'));
+                if (saldoLabel) saldoLabel.click();
+
+                await sleep(2000);
+
+                // 4. Klik Tombol Top Up
+                // Cari tombol Top Up di tabel. Biasanya link <a>
+                const topUpLinks = Array.from(document.querySelectorAll('a[href*="top-up"]'));
+                // Ambil link yang visible atau yang terakhir dirender
+                if (topUpLinks.length > 0) {
+                     // Seringkali ada banyak link topup jika history search sebelumnya masih ada
+                     // Kita asumsikan hasil search terbaru ada di paling atas atau bawah? 
+                     // Biasanya tabel direplace, jadi ambil elemen pertama di tbody
+                     topUpLinks[0].click();
+                } else {
+                    throw "Tombol Top Up tidak ada";
+                }
+                
+                // Script akan reload karena pindah halaman. Data job tetap aman di sessionStorage.
+
+            } catch (err) {
+                reportAndFinish('error', err.toString());
+            }
+        }
+
+        // B. HALAMAN KONFIRMASI
+        else if (url.includes('/transaction/top-up')) {
+            try {
+                await sleep(1000);
+
+                // 1. Isi Nominal
+                const inputNominal = await waitForElm('input[name="nominal"]');
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                
+                nativeSetter.call(inputNominal, config.nominal);
+                inputNominal.dispatchEvent(new Event('input', { bubbles: true }));
+
+                // 2. Isi Note
+                const inputNote = document.querySelector('input[name="note"]');
+                nativeSetter.call(inputNote, config.note);
+                inputNote.dispatchEvent(new Event('input', { bubbles: true }));
+
+                await sleep(500);
+
+                // 3. Submit Form
+                const btnConfirm = document.querySelector('button[type="submit"]');
+                if(btnConfirm) btnConfirm.click();
+                else throw "Tombol Submit tidak ada";
+
+                await sleep(1000);
+
+                // 4. Modal Simpan
+                const modalBtn = await waitForElm('.modal-footer button.btn-primary');
+                if (modalBtn) modalBtn.click();
+                else throw "Tombol Modal Simpan tidak ada";
+
+                // 5. Tunggu Sukses
+                await waitForElm('.Toastify__toast-body');
+                
+                // SUKSES!
+                reportAndFinish('success', 'Transaksi berhasil');
+
+            } catch (err) {
+                reportAndFinish('error', err.toString());
+            }
+        }
+    }
+
+    function reportAndFinish(status, message) {
+        // Kirim pesan ke Opener (Web App Controller)
+        if (window.opener) {
+            window.opener.postMessage({
+                type: 'UKHRO_BOT_REPORT',
+                status: status,
+                message: message
+            }, '*');
+        }
+
+        // Hapus job dari session agar tidak loop kalau user refresh manual
+        sessionStorage.removeItem('CURRENT_BOT_JOB');
+
+        // Navigasi kembali ke halaman awal (opsional, biar siap untuk job selanjutnya jika pakai tab yang sama)
+        // Tapi controller akan menimpa URL, jadi ini optional.
+        // window.location.href = 'https://psp-admin.teknologikartu.com/main/payment/user-balance';
+    }
+
+    // Jalankan
+    init();
+
+})();
