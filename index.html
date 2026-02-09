@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Controller Top Up Ukhro (Gemini 2.5 AI)</title>
+    <title>Controller Top Up Ukhro (Debug Mode)</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script type="importmap">
       {
@@ -19,157 +19,119 @@
         .status-processing { @apply text-blue-600 bg-blue-100 animate-pulse; }
         .status-success { @apply text-green-600 bg-green-100; }
         .status-error { @apply text-red-600 bg-red-100; }
-        
-        /* Animasi Loading Scan */
         .scan-loader {
             border: 3px solid #f3f3f3;
             border-radius: 50%;
             border-top: 3px solid #3498db;
             width: 20px;
             height: 20px;
-            -webkit-animation: spin 1s linear infinite; /* Safari */
             animation: spin 1s linear infinite;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* Area Console Log di UI */
+        .console-box {
+            background: #1e1e1e;
+            color: #00ff00;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            padding: 10px;
+            height: 150px;
+            overflow-y: auto;
+            border-radius: 8px;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
     <div id="app" class="container mx-auto p-6 max-w-4xl">
         
-        <!-- Header -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h1 class="text-2xl font-bold text-gray-800 mb-2">🤖 Controller Top Up Ukhro</h1>
-            <p class="text-gray-600 text-sm">Versi 2.5: Menggunakan <b>Gemini 2.5 Flash</b> untuk Akurasi Tinggi</p>
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">🤖 Controller Ukhro (Debug Mode)</h1>
+            <p class="text-gray-600 text-sm">Log aktivitas akan muncul di bawah dan di Console Browser (F12).</p>
         </div>
 
-        <!-- Configuration -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="md:col-span-2">
                     <label class="block font-bold mb-1 text-gray-700">Gemini API Key <span class="text-red-500">*</span></label>
-                    <input type="password" v-model="apiKey" class="w-full border p-2 rounded focus:ring focus:ring-blue-300 bg-gray-50" placeholder="Tempel API Key Gemini di sini...">
+                    <input type="password" v-model="apiKey" class="w-full border p-2 rounded bg-gray-50" placeholder="Tempel API Key Gemini...">
                 </div>
 
-                <!-- Bagian Upload & Scan -->
                 <div class="md:col-span-2 bg-blue-50 p-4 rounded border border-blue-100">
                     <label class="block font-bold mb-2 text-blue-800">1. Upload Foto Tabel</label>
                     <div class="flex gap-2">
                         <input type="file" ref="fileInput" @change="handleFileSelect" accept="image/*" class="flex-grow border p-2 rounded bg-white">
-                        <button 
-                            @click="triggerScan" 
-                            :disabled="isAnalyzing || !apiKey"
-                            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold disabled:bg-gray-400 flex items-center gap-2"
-                        >
+                        <button @click="triggerScan" :disabled="isAnalyzing || !apiKey" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold disabled:bg-gray-400 flex items-center gap-2">
                             <div v-if="isAnalyzing" class="scan-loader"></div>
-                            {{ isAnalyzing ? 'Sedang Baca...' : '🔍 SCAN FOTO (v2.5)' }}
+                            {{ isAnalyzing ? 'Sedang Baca...' : '🔍 SCAN FOTO' }}
                         </button>
                     </div>
-                    <p class="text-xs text-gray-500 mt-1">*Pilih foto lalu klik SCAN FOTO jika data tidak muncul otomatis.</p>
                 </div>
 
                 <div>
                     <label class="block font-bold mb-1">2. Nominal (Rp) <span class="text-red-500">*</span></label>
-                    <input type="number" v-model="config.nominal" class="w-full border p-2 rounded focus:ring focus:ring-blue-300" placeholder="5000">
+                    <input type="number" v-model="config.nominal" class="w-full border p-2 rounded" placeholder="5000">
                 </div>
                 <div>
                     <label class="block font-bold mb-1">3. Keterangan <span class="text-red-500">*</span></label>
-                    <input type="text" v-model="config.note" class="w-full border p-2 rounded focus:ring focus:ring-blue-300" placeholder="SPP/Tabungan">
+                    <input type="text" v-model="config.note" class="w-full border p-2 rounded" placeholder="SPP/Tabungan">
                 </div>
             </div>
             
-            <!-- Error Message Box -->
             <div v-if="errorMessage" class="mt-4 p-3 bg-red-100 text-red-700 rounded border border-red-200 text-sm font-mono">
                 ❌ {{ errorMessage }}
             </div>
+
+            <!-- LOG BOX DI UI -->
+            <div class="console-box" ref="consoleBox">
+                <div v-for="(log, i) in appLogs" :key="i">> {{ log }}</div>
+            </div>
         </div>
 
-        <!-- Controls (Tombol Mulai) -->
         <div class="flex flex-col md:flex-row gap-4 mb-6 items-center bg-gray-100 p-4 rounded-lg sticky top-0 z-10 shadow-sm border">
-            <button 
-                @click="startQueue" 
-                :disabled="!canStart" 
-                :class="[
-                    'px-6 py-3 rounded-lg font-bold shadow transition-colors flex-grow md:flex-grow-0 text-left',
-                    canStart ? 'bg-green-600 hover:bg-green-700 text-white cursor-pointer' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                ]"
-            >
+            <button @click="startQueue" :disabled="!canStart" :class="['px-6 py-3 rounded-lg font-bold shadow transition-colors flex-grow md:flex-grow-0 text-left', canStart ? 'bg-green-600 hover:bg-green-700 text-white cursor-pointer' : 'bg-gray-300 text-gray-500 cursor-not-allowed']">
                 <span v-if="isRunning">🔄 Sedang Berjalan...</span>
-                <span v-else-if="students.length === 0">⚠️ Data Kosong (Scan Foto Dulu)</span>
-                <span v-else-if="!config.nominal">⚠️ Isi Nominal Dulu</span>
+                <span v-else-if="students.length === 0">⚠️ Data Kosong</span>
                 <span v-else>▶️ MULAI EKSEKUSI ({{ students.length }} Data)</span>
             </button>
-            
-            <button 
-                @click="stopQueue" 
-                v-if="isRunning" 
-                class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-bold shadow"
-            >
-                ⏹️ STOP
-            </button>
-
-            <div class="flex-grow text-right self-center text-gray-700 font-mono font-medium">
-                {{ progressText }}
-            </div>
+            <button @click="stopQueue" v-if="isRunning" class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-bold shadow">⏹️ STOP</button>
+            <div class="flex-grow text-right self-center text-gray-700 font-mono font-medium">{{ progressText }}</div>
         </div>
 
-        <!-- Data Table (Preview Data) -->
         <div class="bg-white rounded-lg shadow-md overflow-hidden">
             <div class="flex justify-between items-center p-3 bg-gray-100 border-b">
-                <div class="font-bold text-gray-700">Preview Data Siswa ({{ students.length }} Baris)</div>
+                <div class="font-bold text-gray-700">Preview Data</div>
                 <button v-if="students.length > 0" @click="students = []" class="text-xs text-red-500 hover:underline">Hapus Semua</button>
             </div>
-            
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm">
                     <thead class="bg-gray-800 text-white">
                         <tr>
                             <th class="p-3 text-left w-12">No</th>
-                            <th class="p-3 text-left w-24">NIS</th>
-                            <th class="p-3 text-left">Nama Siswa (Wajib Cek)</th>
-                            <th class="p-3 text-left">Nama Ayah (Wajib Cek)</th>
+                            <th class="p-3 text-left">Nama Siswa</th>
+                            <th class="p-3 text-left">Nama Ayah</th>
                             <th class="p-3 text-left w-28">Status</th>
                             <th class="p-3 w-10">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <!-- State Kosong -->
-                        <tr v-if="students.length === 0">
-                            <td colspan="6" class="p-8 text-center text-gray-500">
-                                <div class="text-5xl mb-4">📄</div>
-                                <p class="font-bold">Belum ada data yang discan.</p>
-                                <p class="text-sm mt-1">1. Masukkan API Key.<br>2. Upload Foto.<br>3. Klik tombol <b>SCAN FOTO</b> biru di atas.</p>
-                            </td>
-                        </tr>
-
-                        <!-- State Ada Data -->
-                        <tr v-for="(s, index) in students" :key="index" class="border-b hover:bg-gray-50 transition-colors">
+                        <tr v-if="students.length === 0"><td colspan="5" class="p-8 text-center text-gray-500">Data masih kosong.</td></tr>
+                        <tr v-for="(s, index) in students" :key="index" class="border-b hover:bg-gray-50">
                             <td class="p-2 text-center">{{ index + 1 }}</td>
-                            <td class="p-2"><input v-model="s.nis" class="w-full bg-transparent border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-1"></td>
-                            <td class="p-2"><input v-model="s.nama" class="w-full font-bold bg-transparent border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-1"></td>
-                            <td class="p-2"><input v-model="s.nama_ayah" class="w-full bg-transparent border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-1"></td>
-                            <td class="p-2">
-                                <span :class="'px-2 py-1 rounded text-xs font-bold inline-block w-full text-center status-' + s.status">
-                                    {{ s.status === 'pending' ? 'MENUNGGU' : s.status.toUpperCase() }}
-                                </span>
-                            </td>
-                            <td class="p-2 text-center">
-                                <button @click="removeStudent(index)" class="text-red-500 hover:text-red-700 font-bold">×</button>
-                            </td>
+                            <td class="p-2"><input v-model="s.nama" class="w-full font-bold bg-transparent"></td>
+                            <td class="p-2"><input v-model="s.nama_ayah" class="w-full bg-transparent"></td>
+                            <td class="p-2"><span :class="'px-2 py-1 rounded text-xs font-bold inline-block w-full text-center status-' + s.status">{{ s.status }}</span></td>
+                            <td class="p-2 text-center"><button @click="removeStudent(index)" class="text-red-500">×</button></td>
                         </tr>
                     </tbody>
                 </table>
             </div>
         </div>
-
     </div>
 
     <script type="module">
         import { GoogleGenerativeAI } from "@google/generative-ai";
-
-        const { createApp, ref, computed } = Vue;
+        const { createApp, ref, computed, watch, nextTick } = Vue;
 
         createApp({
             setup() {
@@ -181,40 +143,31 @@
                 const currentIndex = ref(0);
                 const errorMessage = ref('');
                 const fileInput = ref(null);
+                const appLogs = ref([]);
+                const consoleBox = ref(null);
                 let workerWindow = null;
 
-                // Simpan API Key biar gak capek ngetik ulang
-                const saveKey = () => localStorage.setItem('GEMINI_API_KEY', apiKey.value);
-
-                // Event saat pilih file
-                const handleFileSelect = () => {
-                    // Reset error saat pilih file baru
-                    errorMessage.value = '';
-                    // Opsional: Langsung scan jika key ada
-                    if (apiKey.value) {
-                        triggerScan();
-                    }
+                const log = (msg) => {
+                    const timestamp = new Date().toLocaleTimeString();
+                    const fullMsg = `[${timestamp}] ${msg}`;
+                    console.log(`%c[CONTROLLER] ${msg}`, 'color: blue; font-weight: bold;');
+                    appLogs.value.push(fullMsg);
+                    nextTick(() => {
+                        if (consoleBox.value) consoleBox.value.scrollTop = consoleBox.value.scrollHeight;
+                    });
                 };
 
-                // Fungsi Scan (Bisa dipanggil manual tombol)
-                const triggerScan = async () => {
-                    const files = fileInput.value.files;
-                    if (files.length === 0) {
-                        alert("⚠️ Pilih foto tabel terlebih dahulu!");
-                        return;
-                    }
-                    if (!apiKey.value) {
-                        alert("⚠️ Masukkan API Key Gemini!");
-                        return;
-                    }
+                const saveKey = () => localStorage.setItem('GEMINI_API_KEY', apiKey.value);
+                const handleFileSelect = () => { errorMessage.value = ''; log("File dipilih user."); };
+                const removeStudent = (index) => students.value.splice(index, 1);
 
-                    saveKey();
-                    isAnalyzing.value = true;
-                    errorMessage.value = '';
-                    
+                const triggerScan = async () => {
+                    if (!fileInput.value.files[0] || !apiKey.value) return alert("Cek File/API Key!");
+                    saveKey(); isAnalyzing.value = true; errorMessage.value = '';
+                    log("Memulai proses Scan dengan Gemini 2.5...");
+
                     try {
-                        const file = files[0];
-                        // Convert File to Base64
+                        const file = fileInput.value.files[0];
                         const base64Data = await new Promise((resolve) => {
                             const reader = new FileReader();
                             reader.onloadend = () => resolve(reader.result.split(',')[1]);
@@ -222,145 +175,81 @@
                         });
 
                         const genAI = new GoogleGenerativeAI(apiKey.value);
-                        
-                        // --- UPDATE: Menggunakan Model Gemini 2.5 Flash ---
                         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025" });
-
-                        // Prompt yang disesuaikan dengan gambar user (Multi tabel kelompok)
-                        const prompt = `
-                            Kamu adalah asisten entri data. Tugasmu adalah mengekstrak data siswa dari foto tabel kertas ini ke dalam format JSON.
-                            
-                            INSTRUKSI KHUSUS:
-                            1. Foto ini mungkin berisi beberapa tabel terpisah (misal: "KELOMPOK : 7", "KELOMPOK : 8"). Gabungkan semua data siswa menjadi satu list flat.
-                            2. Abaikan baris header (No, Nis, Nama, Nama Ayah, dsb).
-                            3. Abaikan baris judul kelompok (misal "KELOMPOK : 7").
-                            4. Abaikan tulisan tangan atau total di bagian bawah kertas.
-                            5. Fokus pada kolom: NIS, Nama, Nama Ayah.
-                            6. Perbaiki typo OCR yang umum (misal 'l' jadi '1' di NIS, atau salah spasi).
-                            
-                            FORMAT OUTPUT (Wajib JSON Array Murni tanpa Markdown):
-                            [
-                              { "nis": "12345", "nama": "Budi Santoso", "nama_ayah": "Suharto" },
-                              { "nis": "67890", "nama": "Siti Aminah", "nama_ayah": "Jokowi" }
-                            ]
-                        `;
-
+                        
+                        log("Mengirim request ke Google AI...");
                         const result = await model.generateContent([
-                            prompt,
+                            `Ekstrak tabel siswa ke JSON Array: [{ "nis": "", "nama": "", "nama_ayah": "" }]. Abaikan header/judul. Gabung semua tabel. Perbaiki typo.`,
                             { inlineData: { data: base64Data, mimeType: file.type } }
                         ]);
                         
-                        const text = result.response.text();
-                        console.log("Raw Response:", text); // Debugging
-
-                        // Bersihkan markdown block ```json ... ```
-                        const cleanedText = text.replace(/```json|```/g, '').trim();
+                        log("Respon diterima dari AI. Parsing JSON...");
+                        const text = result.response.text().replace(/```json|```/g, '').trim();
+                        const parsedData = JSON.parse(text);
                         
-                        try {
-                            const parsedData = JSON.parse(cleanedText);
-                            if (Array.isArray(parsedData) && parsedData.length > 0) {
-                                // Tambahkan status pending
-                                students.value = parsedData.map(s => ({
-                                    nis: s.nis || "",
-                                    nama: s.nama || "",
-                                    nama_ayah: s.nama_ayah || "",
-                                    status: 'pending'
-                                }));
-                            } else {
-                                throw new Error("Format JSON valid tapi kosong atau bukan array.");
-                            }
-                        } catch (parseError) {
-                            console.error("Parse Error:", parseError);
-                            throw new Error("Gagal membaca struktur data dari respon AI. Coba foto ulang dengan pencahayaan lebih baik.");
-                        }
+                        if (Array.isArray(parsedData) && parsedData.length > 0) {
+                            students.value = parsedData.map(s => ({ ...s, status: 'pending' }));
+                            log(`Berhasil: ${parsedData.length} data ditemukan.`);
+                        } else throw new Error("JSON Kosong/Format Salah");
 
                     } catch (error) {
-                        errorMessage.value = "Gagal Scan (Gemini 2.5): " + error.message;
-                        console.error(error);
-                    } finally {
-                        isAnalyzing.value = false;
-                    }
-                };
-
-                const removeStudent = (index) => {
-                    students.value.splice(index, 1);
-                };
-
-                // Validasi Tombol Start
-                const canStart = computed(() => {
-                    return students.value.length > 0 && 
-                           config.value.nominal && 
-                           !isRunning.value;
-                });
-
-                // 2. Queue Logic
-                const startQueue = () => {
-                    if (!canStart.value) return;
-                    isRunning.value = true;
-                    processNext();
-                };
-
-                const stopQueue = () => {
-                    isRunning.value = false;
-                    if (workerWindow) workerWindow.close();
+                        errorMessage.value = error.message;
+                        log(`ERROR SCAN: ${error.message}`);
+                    } finally { isAnalyzing.value = false; }
                 };
 
                 const processNext = () => {
                     if (!isRunning.value) return;
-
-                    // Cari siswa pending
                     const index = students.value.findIndex(s => s.status === 'pending');
+                    
                     if (index === -1) {
-                        alert("✅ Semua data selesai diproses!");
+                        log("Semua antrian selesai!");
+                        alert("✅ Selesai!");
                         isRunning.value = false;
                         return;
                     }
 
                     currentIndex.value = index;
-                    const student = students.value[index];
-                    student.status = 'processing';
+                    students.value[index].status = 'processing';
+                    log(`Memproses Antrian #${index + 1}: ${students.value[index].nama}`);
 
-                    // Payload
-                    const payload = {
-                        student: student,
-                        config: config.value
-                    };
-                    
+                    const payload = { student: students.value[index], config: config.value };
                     const targetUrl = `https://psp-admin.teknologikartu.com/main/payment/user-balance#bot_job=${encodeURIComponent(JSON.stringify(payload))}`;
                     
                     if (workerWindow && !workerWindow.closed) {
+                        log("Navigasi tab worker ke URL baru...");
                         workerWindow.location.href = targetUrl;
                     } else {
+                        log("Membuka tab worker baru...");
                         workerWindow = window.open(targetUrl, 'ukhro_worker_tab');
                     }
                 };
 
-                // 3. Listener Komunikasi
+                const startQueue = () => { isRunning.value = true; log("=== MULAI EKSEKUSI ==="); processNext(); };
+                const stopQueue = () => { isRunning.value = false; log("STOP dipanggil user."); };
+
                 window.addEventListener('message', (event) => {
-                    const data = event.data;
-                    if (data.type === 'UKHRO_BOT_REPORT') {
+                    if (event.data.type === 'UKHRO_BOT_REPORT') {
                         const idx = currentIndex.value;
-                        if (data.status === 'success') {
-                            students.value[idx].status = 'success';
-                        } else {
-                            students.value[idx].status = 'error';
-                            console.error("Worker Error:", data.message);
-                        }
-                        // Lanjut next
+                        const status = event.data.status;
+                        const msg = event.data.message;
+                        
+                        log(`Laporan dari Worker: [${status.toUpperCase()}] ${msg}`);
+                        
+                        if (status === 'success') students.value[idx].status = 'success';
+                        else students.value[idx].status = 'error';
+
                         setTimeout(() => processNext(), 1500);
                     }
                 });
 
+                const canStart = computed(() => students.value.length > 0 && config.value.nominal && !isRunning.value);
                 const progressText = computed(() => {
                     if (students.value.length === 0) return "Siap";
-                    const done = students.value.filter(s => s.status === 'success' || s.status === 'error').length;
-                    return `${done} / ${students.value.length} Selesai`;
+                    return `${students.value.filter(s => ['success','error'].includes(s.status)).length} / ${students.value.length} Selesai`;
                 });
 
-                return {
-                    apiKey, config, students, isAnalyzing, isRunning, errorMessage, fileInput,
-                    handleFileSelect, triggerScan, removeStudent, startQueue, stopQueue, progressText, canStart
-                };
+                return { apiKey, config, students, isAnalyzing, isRunning, errorMessage, fileInput, appLogs, consoleBox, handleFileSelect, triggerScan, removeStudent, startQueue, stopQueue, progressText, canStart };
             }
         }).mount('#app');
     </script>
